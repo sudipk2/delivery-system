@@ -1,0 +1,146 @@
+[
+  {
+    "name": "Rainbow Veg Bowl",
+    "category": "Healthy",
+    "price": 145,
+    "description": "Fresh vegetables, grains and a zesty dressing.",
+    "rating": "4.8",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Paneer Rice Bowl",
+    "category": "Meals",
+    "price": 160,
+    "description": "Comforting rice with spiced paneer.",
+    "rating": "4.7",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Masala Dosa",
+    "category": "Meals",
+    "price": 90,
+    "description": "Crispy dosa served with chutney and sambar.",
+    "rating": "4.6",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1668236543090-82eba5ee5976?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Veg Burger",
+    "category": "Snacks",
+    "price": 110,
+    "description": "Toasted bun with a crunchy vegetable patty.",
+    "rating": "4.5",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1520072959219-c595dc870360?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Fruit and Yogurt Bowl",
+    "category": "Healthy",
+    "price": 125,
+    "description": "Seasonal fruit with creamy yogurt.",
+    "rating": "4.8",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1511690743698-d9d85f2fbf38?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Paneer Wrap",
+    "category": "Snacks",
+    "price": 80,
+    "description": "Paneer and salad wrapped for an easy bite.",
+    "rating": "4.4",
+    "available": false,
+    "image": "https://images.unsplash.com/photo-1626700051175-6818013e1d4f?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Veg Noodle Bowl",
+    "category": "Meals",
+    "price": 135,
+    "description": "Wok-tossed noodles with fresh vegetables.",
+    "rating": "4.5",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Avocado Toast",
+    "category": "Healthy",
+    "price": 150,
+    "description": "Toasted bread with greens and avocado.",
+    "rating": "4.6",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Margherita Pizza",
+    "category": "Meals",
+    "price": 179,
+    "description": "Classic cheese pizza with tomato and basil.",
+    "rating": "4.7",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "French Fries",
+    "category": "Snacks",
+    "price": 79,
+    "description": "Golden crisp fries with a light seasoning.",
+    "rating": "4.4",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Veg Momos",
+    "category": "Snacks",
+    "price": 99,
+    "description": "Steamed vegetable dumplings with dipping sauce.",
+    "rating": "4.6",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Grilled Sandwich",
+    "category": "Snacks",
+    "price": 95,
+    "description": "Grilled sandwich with vegetables and cheese.",
+    "rating": "4.3",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Chickpea Salad",
+    "category": "Healthy",
+    "price": 119,
+    "description": "Chickpeas, fresh vegetables and herbs.",
+    "rating": "4.5",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Mango Smoothie",
+    "category": "Drinks",
+    "price": 89,
+    "description": "A chilled mango smoothie.",
+    "rating": "4.5",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1505252585461-04db1eb84625?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Cold Coffee",
+    "category": "Drinks",
+    "price": 99,
+    "description": "Chilled coffee with milk.",
+    "rating": "4.4",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    "name": "Chocolate Brownie",
+    "category": "Snacks",
+    "price": 75,
+    "description": "Rich chocolate brownie.",
+    "rating": "4.6",
+    "available": true,
+    "image": "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=700&q=80"
+  }
+]

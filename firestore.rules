@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedAdmin() {
+      return signedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == "admin@example.com";
+    }
+
+    function validDish(data) {
+      return data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 80
+        && data.description is string
+        && data.description.size() <= 240
+        && data.price is number
+        && data.price > 0
+        && data.category in ["Meals", "Snacks", "Healthy", "Drinks"]
+        && data.image is string
+        && data.available is bool;
+    }
+
+    match /dishes/{dishId} {
+      // Public menu reading; all writes are restricted to the verified admin.
+      allow read: if true;
+      allow create, update: if isVerifiedAdmin() && validDish(request.resource.data);
+      allow delete: if isVerifiedAdmin();
+    }
+
+    // Default deny for every other collection/document.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
