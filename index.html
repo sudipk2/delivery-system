@@ -10,6 +10,54 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
+<div id="authModal" class="auth-modal hidden">
+  <div class="auth-box">
+    <button id="closeAuth" class="close-auth">&times;</button>
+
+    <h2 id="authTitle">Welcome to SmartBite</h2>
+    <p id="authMessage">Sign in to your account</p>
+
+    <form id="authForm">
+      <input
+        type="text"
+        id="authName"
+        placeholder="Your name"
+        autocomplete="name"
+        hidden
+      >
+
+      <input
+        type="email"
+        id="authEmail"
+        placeholder="Email address"
+        autocomplete="email"
+        required
+      >
+
+      <input
+        type="password"
+        id="authPassword"
+        placeholder="Password"
+        autocomplete="current-password"
+        minlength="6"
+        required
+      >
+
+      <button type="submit" id="authSubmit">Sign In</button>
+    </form>
+
+    <button type="button" id="toggleAuth">
+      Create an account
+    </button>
+
+    <button type="button" id="forgotPassword">
+      Forgot password?
+    </button>
+
+    <p id="authError" role="status"></p>
+  </div>
+</div>
+
 <body>
   <header class="topbar">
     <a class="brand" href="#"><span class="brand-mark">S</span><span>smart<span class="brand-accent">bite</span><small>GOOD FOOD. CLEAR INFORMATION.</small></span></a>

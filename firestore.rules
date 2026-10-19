@@ -7,8 +7,7 @@ service cloud.firestore {
 
     function isVerifiedAdmin() {
       return signedIn()
-        && request.auth.token.email_verified == true
-        && request.auth.token.email == "admin@example.com";
+      && request.auth.token.email == "kandelsudip321@gmail.com";
     }
 
     function validDish(data) {

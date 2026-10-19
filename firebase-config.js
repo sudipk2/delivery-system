@@ -2,16 +2,17 @@
 // Copy these values from Firebase Console > Project settings > Your apps > Web app.
 // This browser config is not a password; Firestore Security Rules protect your data.
 export const firebaseConfig = {
-  apiKey: "PASTE_YOUR_FIREBASE_API_KEY",
-  authDomain: "PASTE_YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "PASTE_YOUR_PROJECT_ID",
-  storageBucket: "PASTE_YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID",
-  appId: "PASTE_YOUR_FIREBASE_APP_ID"
+  apiKey: "AIzaSyAK2xlGplPoP73BI7s2yJ8VeJ2MDHxlHLA",
+  authDomain: "online-delivery-platform-2e03b.firebaseapp.com",
+  projectId: "online-delivery-platform-2e03b",
+  storageBucket: "online-delivery-platform-2e03b.firebasestorage.app",
+  messagingSenderId: "421455912393",
+  appId: "1:421455912393:web:3a9c10fd0014144cc2dc18",
+  measurementId: "G-BM1SHNTDKP"
 };
 
 // Use the exact email of the verified administrator account you create.
 // Keep the same email in firestore.rules. This is an allowlist, not a password.
 export const adminEmailAllowlist = [
-  "admin@example.com"
+  "kandelsudip321@gmail.com"
 ];
