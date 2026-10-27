@@ -107,10 +107,25 @@ $("#searchButton").onclick = renderFoods;
 $("#searchInput").addEventListener("keydown", e => { if (e.key === "Enter") renderFoods(); });
 $("#cartButton").onclick = openCart; $("#closeCart").onclick = closeCart; $("#overlay").onclick = closeCart;
 $("#showOrders").onclick = () => $("#tracking").scrollIntoView({ behavior: "smooth" });
+
 $("#checkoutButton").onclick = () => {
-  if (!Object.keys(cart).length) return showToast("Add an available dish before continuing.");
-  showToast("Menu and cart work, but real checkout is not configured yet.");
+  if (!Object.keys(cart).length) {
+    return showToast("Add an available dish before continuing.");
+  }
+
+  // Require login before checkout
+  if (!auth.currentUser) {
+    $("#authModal")?.classList.add("open");
+    return showToast("Please log in before placing an order.");
+  }
+
+  // Show payment choices
+  $("#checkoutTotal").textContent = rupees(totals().total);
+  closeCart();
+  $("#paymentModal")?.classList.add("is-open");
 };
+
+
 $("#changeAddress").onclick = () => { $("#addressInput").value = address; $("#addressModal").classList.add("open"); };
 $("#closeAddress").onclick = () => $("#addressModal").classList.remove("open");
 $("#saveAddress").onclick = () => {
@@ -308,3 +323,84 @@ $("#locateMe").onclick = () => {
 };
 initMap();
 renderCart();
+
+// ===================================
+// SMARTBITE PAYMENT MODAL CONTROLS
+// ===================================
+
+const paymentModal = document.getElementById("paymentModal");
+const closePayment = document.getElementById("closePayment");
+const cancelPayment = document.getElementById("cancelPayment");
+const continuePayment = document.getElementById("continuePayment");
+const paymentMessage = document.getElementById("paymentMessage");
+const checkoutTotal = document.getElementById("checkoutTotal");
+
+function openPaymentModal(total = 0) {
+  if (!paymentModal) return;
+
+  // Require customer login before opening checkout.
+  if (!auth.currentUser) {
+    const authModal = document.getElementById("authModal");
+
+    if (authModal) {
+      authModal.classList.add("active");
+      authModal.style.display = "flex";
+    } else {
+      alert("Please log in before placing an order.");
+    }
+
+    return;
+  }
+
+  checkoutTotal.textContent = new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR"
+  }).format(total);
+
+  paymentModal.classList.add("is-open");
+}
+
+function closePaymentModal() {
+  paymentModal?.classList.remove("is-open");
+}
+
+closePayment?.addEventListener("click", closePaymentModal);
+cancelPayment?.addEventListener("click", closePaymentModal);
+
+paymentModal?.addEventListener("click", (event) => {
+  if (event.target === paymentModal) {
+    closePaymentModal();
+  }
+});
+
+// Highlight the selected payment option.
+document.querySelectorAll('input[name="paymentMethod"]').forEach((radio) => {
+  radio.addEventListener("change", () => {
+    document.querySelectorAll(".payment-option").forEach((option) => {
+      option.classList.toggle(
+        "selected",
+        option.querySelector('input[name="paymentMethod"]').checked
+      );
+    });
+
+    paymentMessage.textContent =
+      radio.value === "cod"
+        ? "Cash on Delivery is selected."
+        : "Online payment requires a configured payment gateway.";
+  });
+});
+
+// UI only: no order or payment is created here.
+continuePayment?.addEventListener("click", () => {
+  const selectedMethod = document.querySelector(
+    'input[name="paymentMethod"]:checked'
+  )?.value;
+
+  if (selectedMethod === "cod") {
+    paymentMessage.textContent =
+      "COD selected. Connect order submission before confirming.";
+  } else {
+    paymentMessage.textContent =
+      "Online payment is not connected yet.";
+  }
+});
