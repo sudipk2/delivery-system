@@ -14,9 +14,67 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const dishesRef = collection(db, "dishes");
 
+
+let allFoods = [];
 let foods = [];
 let cart = {};
+
+let selectedRestaurantId = "campus-bites";
 let activeCategory = "All";
+
+const restaurantCatalog = [
+  {
+    id: "Tummy-Treat",
+    name: "Tummy Treat",
+    cuisine: "Indian meals and snacks",
+    description: "Your existing SmartBite menu with popular meals, snacks and drinks.",
+    eta: "20–30 min",
+    deliveryFee: 20,
+    image: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    id: "Red-Spice",
+    name: "Red Spice",
+    cuisine: "Indian cuisine",
+    description: "Enjoy biryani, curries, rice dishes and spicy rolls.",
+    eta: "25–35 min",
+    deliveryFee: 25,
+    image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    id: "JAVA-momo-junction",
+    name: "JAVA momo junction",
+    cuisine: "Momos and Asian food",
+    description: "Steamed momos, fried momos, noodles and soups.",
+    eta: "20–30 min",
+    deliveryFee: 20,
+    image: "https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    id: "oasis",
+    name: "Oasis",
+    cuisine: "Healthy food",
+    description: "Fresh salads, healthy bowls, smoothies and juices.",
+    eta: "15–25 min",
+    deliveryFee: 20,
+    image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"
+  },
+  {
+    id: "Halli-coffee",
+    name: "Halli-coffee",
+    cuisine: "Cafe and desserts",
+    description: "Coffee, sandwiches, burgers and delicious desserts.",
+    eta: "15–25 min",
+    deliveryFee: 15,
+    image: "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=700&q=80"
+  }
+];
+
+function activeRestaurant() {
+  return restaurantCatalog.find(r => r.id === selectedRestaurantId)
+    || restaurantCatalog[0];
+}
+
 let address = "Choose delivery location";
 let map, destinationMarker, currentLocationMarker, accuracyCircle;
 let unsubscribeDishes = null;
@@ -67,11 +125,123 @@ function renderFoods() {
     renderCart(); showToast("Added to your cart.");
   }));
 }
+
+// =======================================
+// RESTAURANT DASHBOARD
+// =======================================
+
+function renderRestaurantDashboard() {
+  const grid = $("#restaurantGrid");
+  if (!grid) return;
+
+  grid.innerHTML = restaurantCatalog.map(r => `
+    <article class="restaurant-card ${
+      r.id === selectedRestaurantId ? "selected" : ""
+    }">
+      <img src="${safeText(r.image)}" alt="${safeText(r.name)}">
+
+      <div class="restaurant-card-content">
+        <h3>${safeText(r.name)}</h3>
+
+        <p>${safeText(r.description)}</p>
+
+        <div class="restaurant-meta">
+          <span>${safeText(r.cuisine)}</span>
+          <span>₹${r.deliveryFee} delivery</span>
+        </div>
+
+        <div class="restaurant-meta">
+          <span>Estimated time</span>
+          <strong>${safeText(r.eta)}</strong>
+        </div>
+
+        <button
+          class="restaurant-select"
+          data-restaurant="${r.id}"
+          type="button">
+          ${r.id === selectedRestaurantId
+            ? "✓ Selected"
+            : "View restaurant"}
+        </button>
+      </div>
+    </article>
+  `).join("");
+
+  grid.querySelectorAll("[data-restaurant]").forEach(button => {
+    button.addEventListener("click", () => {
+      selectRestaurant(button.dataset.restaurant);
+    });
+  });
+}
+
+// Select a restaurant and load only its dishes.
+function selectRestaurant(restaurantId, scrollToMenu =true) {
+  const restaurant = restaurantCatalog.find(
+    r => r.id === restaurantId
+  );
+
+  if (!restaurant) return;
+
+  // Do not mix dishes from two restaurants in one cart.
+  if (selectedRestaurantId !== restaurantId) {
+    cart = {};
+    activeCategory = "All";
+    closeCart();
+  }
+
+  selectedRestaurantId = restaurantId;
+
+  foods = allFoods.filter(
+    food => food.restaurantId === restaurantId
+  );
+
+  // Reset search and category filters.
+  $("#searchInput").value = "";
+
+  document.querySelectorAll(".chip").forEach(button => {
+    button.classList.toggle(
+      "active",
+      button.dataset.category === "All"
+    );
+  });
+
+  $("#menuHeading").textContent =
+    restaurant.name + " – Menu";
+
+  $("#selectedRestaurantLabel").textContent =
+    restaurant.cuisine + " · " + restaurant.eta;
+
+  // Keep admin menu selector synchronized.
+  const adminSelect = $("#restaurantAdminSelect");
+  if (adminSelect) adminSelect.value = restaurantId;
+
+  renderRestaurantDashboard();
+  renderFoods();
+  renderCart();
+  renderAdminList();
+
+  showToast(restaurant.name + " selected.");
+}
+
+// Admin can switch the restaurant being managed.
+$("#restaurantAdminSelect").addEventListener("change", event => {
+  selectRestaurant(event.target.value);
+});
+
 function totals() {
-  const subtotal = foods.reduce((sum, f) => sum + f.price * (cart[f.id] || 0), 0);
-  const delivery = subtotal ? 20 : 0;
+  const subtotal = foods.reduce(
+    (sum, f) => sum + f.price * (cart[f.id] || 0), 0
+  );
+
+  const delivery = subtotal ? activeRestaurant().deliveryFee : 0;
   const tax = subtotal ? Math.round(subtotal * 0.05) : 0;
-  return { subtotal, delivery, tax, total: subtotal + delivery + tax };
+
+  return {
+    subtotal,
+    delivery,
+    tax,
+    total: subtotal + delivery + tax
+  };
 }
 function renderCart() {
   // Remove items that are no longer in the live menu or became unavailable.
@@ -201,7 +371,16 @@ $("#dishForm").addEventListener("submit", async e => {
     const image = $("#dishImage").value.trim();
     const available = $("#dishAvailable").checked;
     if (!name || !description || !Number.isFinite(price) || price <= 0 || !image) throw new Error("Fill all required fields with a valid positive price and image URL.");
-    const payload = { name, description, price, category, image, available, updatedAt: serverTimestamp() };
+    const payload = {
+      name,
+      description,
+      price,
+      category,
+      image,
+      available,
+      restaurantId: selectedRestaurantId,
+      updatedAt: serverTimestamp()
+    };
     if (id) await updateDoc(doc(db, "dishes", id), payload);
     else await addDoc(dishesRef, { ...payload, createdAt: serverTimestamp() });
     resetDishForm(); showToast(id ? "Dish updated." : "Dish added.");
@@ -241,41 +420,216 @@ function renderAdminList() {
 
 const initialMenu = [{"name":"Rainbow Veg Bowl","category":"Healthy","price":145,"description":"Fresh vegetables, grains and a zesty dressing.","rating":"4.8","available":true,"image":"https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"},{"name":"Paneer Rice Bowl","category":"Meals","price":160,"description":"Comforting rice with spiced paneer.","rating":"4.7","available":true,"image":"https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=700&q=80"},{"name":"Masala Dosa","category":"Meals","price":90,"description":"Crispy dosa served with chutney and sambar.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1668236543090-82eba5ee5976?auto=format&fit=crop&w=700&q=80"},{"name":"Veg Burger","category":"Snacks","price":110,"description":"Toasted bun with a crunchy vegetable patty.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1520072959219-c595dc870360?auto=format&fit=crop&w=700&q=80"},{"name":"Fruit and Yogurt Bowl","category":"Healthy","price":125,"description":"Seasonal fruit with creamy yogurt.","rating":"4.8","available":true,"image":"https://images.unsplash.com/photo-1511690743698-d9d85f2fbf38?auto=format&fit=crop&w=700&q=80"},{"name":"Paneer Wrap","category":"Snacks","price":80,"description":"Paneer and salad wrapped for an easy bite.","rating":"4.4","available":false,"image":"https://images.unsplash.com/photo-1626700051175-6818013e1d4f?auto=format&fit=crop&w=700&q=80"},{"name":"Veg Noodle Bowl","category":"Meals","price":135,"description":"Wok-tossed noodles with fresh vegetables.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=700&q=80"},{"name":"Avocado Toast","category":"Healthy","price":150,"description":"Toasted bread with greens and avocado.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=700&q=80"},{"name":"Margherita Pizza","category":"Meals","price":179,"description":"Classic cheese pizza with tomato and basil.","rating":"4.7","available":true,"image":"https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=700&q=80"},{"name":"French Fries","category":"Snacks","price":79,"description":"Golden crisp fries with a light seasoning.","rating":"4.4","available":true,"image":"https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=700&q=80"},{"name":"Veg Momos","category":"Snacks","price":99,"description":"Steamed vegetable dumplings with dipping sauce.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=700&q=80"},{"name":"Grilled Sandwich","category":"Snacks","price":95,"description":"Grilled sandwich with vegetables and cheese.","rating":"4.3","available":true,"image":"https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=700&q=80"},{"name":"Chickpea Salad","category":"Healthy","price":119,"description":"Chickpeas, fresh vegetables and herbs.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"},{"name":"Mango Smoothie","category":"Drinks","price":89,"description":"A chilled mango smoothie.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1505252585461-04db1eb84625?auto=format&fit=crop&w=700&q=80"},{"name":"Cold Coffee","category":"Drinks","price":99,"description":"Chilled coffee with milk.","rating":"4.4","available":true,"image":"https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=700&q=80"},{"name":"Chocolate Brownie","category":"Snacks","price":75,"description":"Rich chocolate brownie.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=700&q=80"}];
 
-// Live Firestore listener: customer menu refreshes across devices when admin edits dishes.
+// Different sample menus for the four additional restaurants.
+// Tummy-Treatcontinues using the existing initialMenu.
+
+const sampleMenus = {
+  "Tummy-Treat": initialMenu,
+
+  "Red-Spice": [
+    {
+      name: "Chicken Biryani",
+      description: "Aromatic rice with spiced chicken.",
+      price: 190, category: "Meals", available: true,
+      image: "https://images.unsplash.com/photo-1563379091339-03246963d96c?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Paneer Butter Masala",
+      description: "Paneer cooked in a creamy tomato gravy.",
+      price: 160, category: "Meals", available: true,
+      image: "https://images.unsplash.com/photo-1631452180519-c014fe946bc7?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Chicken Roll",
+      description: "Spiced chicken wrapped in a soft roll.",
+      price: 120, category: "Snacks", available: true,
+      image: "https://images.unsplash.com/photo-1626700051175-6818013e1d4f?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Veg Pulao",
+      description: "Rice cooked with vegetables and spices.",
+      price: 110, category: "Meals", available: true,
+      image: "https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=700&q=80"
+    }
+  ],
+
+  "JAVA-momo-junction": [
+    {
+      name: "Steamed Veg Momos",
+      description: "Vegetable dumplings with spicy chutney.",
+      price: 90, category: "Snacks", available: true,
+      image: "https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Chicken Momos",
+      description: "Juicy chicken-filled steamed dumplings.",
+      price: 120, category: "Snacks", available: true,
+      image: "https://images.unsplash.com/photo-1541696432-82c6da8ce7bf?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Fried Momos",
+      description: "Crispy fried dumplings with dip.",
+      price: 110, category: "Snacks", available: true,
+      image: "https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Veg Noodles",
+      description: "Stir-fried noodles with vegetables.",
+      price: 100, category: "Meals", available: true,
+      image: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=700&q=80"
+    }
+  ],
+
+  "Oasis": [
+    {
+      name: "Rainbow Salad Bowl",
+      description: "Fresh vegetables with a light dressing.",
+      price: 140, category: "Healthy", available: true,
+      image: "https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Fruit Yogurt Bowl",
+      description: "Seasonal fruit served with yogurt.",
+      price: 120, category: "Healthy", available: true,
+      image: "https://images.unsplash.com/photo-1511690743698-d9d85f2fbf38?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Avocado Toast",
+      description: "Toasted bread topped with avocado.",
+      price: 150, category: "Healthy", available: true,
+      image: "https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Mango Smoothie",
+      description: "Fresh chilled mango smoothie.",
+      price: 95, category: "Drinks", available: true,
+      image: "https://images.unsplash.com/photo-1505252585461-04db1eb84625?auto=format&fit=crop&w=700&q=80"
+    }
+  ],
+
+  "Halli-coffee": [
+    {
+      name: "Cold Coffee",
+      description: "Chilled coffee blended with milk.",
+      price: 100, category: "Drinks", available: true,
+      image: "https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Chocolate Brownie",
+      description: "Rich chocolate brownie.",
+      price: 85, category: "Snacks", available: true,
+      image: "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Grilled Sandwich",
+      description: "Grilled sandwich with cheese and vegetables.",
+      price: 110, category: "Snacks", available: true,
+      image: "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=700&q=80"
+    },
+    {
+      name: "Veg Burger",
+      description: "Vegetable patty with fresh toppings.",
+      price: 120, category: "Snacks", available: true,
+      image: "https://images.unsplash.com/photo-1520072959219-c595dc870360?auto=format&fit=crop&w=700&q=80"
+    }
+  ]
+};
+
+
 async function seedMenuIfEmpty() {
-  // Called only after the verified allowlisted admin signs in.
   requireAdmin();
-  const existing = await getDocs(dishesRef);
-  if (!existing.empty) {
-    showToast("Menu already has dishes; sample menu was not imported.");
+
+  const restaurantId = selectedRestaurantId;
+  const menuToImport = sampleMenus[restaurantId] || [];
+
+  if (!menuToImport.length) {
+    showToast("No sample menu found for this restaurant.");
     return;
   }
-  const batch = writeBatch(db);
-  initialMenu.forEach(item => {
-    const newRef = doc(dishesRef);
-    const { rating, ...storedItem } = item;
-    batch.set(newRef, { ...storedItem, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+
+  const existing = await getDocs(dishesRef);
+
+  const alreadyHasMenu = existing.docs.some(d => {
+    const data = d.data();
+    const existingRestaurantId =
+      data.restaurantId || "Tummy-Treat";
+
+    return existingRestaurantId === restaurantId;
   });
+
+  if (alreadyHasMenu) {
+    showToast("This restaurant already has a menu. Add dishes manually.");
+    return;
+  }
+
+  const batch = writeBatch(db);
+
+  menuToImport.forEach(item => {
+    const newRef = doc(dishesRef);
+
+    batch.set(newRef, {
+      ...item,
+      restaurantId,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  });
+
   await batch.commit();
-  showToast("Starter menu imported. Review availability and prices before launch.");
+
+  showToast(
+    "Sample menu imported for " + activeRestaurant().name
+  );
 }
+
+
+
 function startMenuListener() {
   if (unsubscribeDishes) unsubscribeDishes();
+
   const q = query(dishesRef, orderBy("name"));
+
   unsubscribeDishes = onSnapshot(q, snapshot => {
-    foods = snapshot.docs.map(d => {
+    // Load dishes belonging to all restaurants.
+    allFoods = snapshot.docs.map(d => {
       const data = d.data();
-      return { id: d.id, name: data.name || "", description: data.description || "",
-        price: Number(data.price) || 0, category: data.category || "Meals",
-        image: data.image || "", available: data.available === true };
+
+      return {
+        id: d.id,
+        name: data.name || "",
+        description: data.description || "",
+        price: Number(data.price) || 0,
+        category: data.category || "Meals",
+        image: data.image || "",
+        available: data.available === true,
+
+        // Old dishes without restaurantId belong to Tummy-Treat.
+        restaurantId: data.restaurantId || "Tummy-Treat"
+      };
     });
-    renderFoods(); renderCart(); renderAdminList();
+
+    // Display only the selected restaurant's menu.
+    foods = allFoods.filter(
+      f => f.restaurantId === selectedRestaurantId
+    );
+
+    renderRestaurantDashboard();
+    renderFoods();
+    renderCart();
+    renderAdminList();
+
   }, error => {
-    $("#menuMessage").textContent = "Unable to load menu. Check Firebase setup and Firestore rules.";
+    $("#menuMessage").textContent =
+      "Unable to load menu. Check Firebase setup and Firestore rules.";
+
     console.error("Firestore menu listener:", error);
     showToast("Could not load menu. Check Firebase configuration.");
   });
 }
+
+
+renderRestaurantDashboard();
+selectRestaurant("Tummy-Treat", false);
 startMenuListener();
 
 // Map remains independent from menu management.
