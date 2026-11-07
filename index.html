@@ -219,7 +219,38 @@
     <!-- FOOD MENU -->
     <section class="menu-section" id="menu">
 
-<!-- RESTAURANT DASHBOARD -->
+      <!-- SMARTBITE AI FOOD ASSISTANT -->
+<section class="ai-food-section" id="aiFoodAssistant">
+
+  <div class="ai-food-heading">
+    <span class="eyebrow">SMARTBITE AI</span>
+    <h2>What are you craving today?</h2>
+    <p>Tell us your mood and let AI find something delicious.</p>
+  </div>
+
+  <div class="ai-food-search">
+    <input
+      type="text"
+      id="aiMoodInput"
+      placeholder="Example: I want something spicy..."
+      maxlength="300"
+    >
+
+    <button type="button" id="aiRecommendButton">
+      Find my food
+    </button>
+  </div>
+
+  <p id="aiFoodStatus" class="ai-food-status">
+    Try: Something spicy, sweet, healthy or filling.
+  </p>
+
+  <div id="aiFoodResults" class="ai-food-results"></div>
+
+</section>
+
+
+      <!-- RESTAURANT DASHBOARD -->
 <section class="restaurant-section" id="restaurantDashboard">
   <div class="section-heading">
     <div>
@@ -639,6 +670,15 @@ aria-modal="true" aria-labelledby="paymentTitle">
             </select>
           </div>
         </div>
+
+        <label for="dishType">Menu type *</label>
+<select id="dishType" required>
+  <option value="permanent">Permanent dish (every day)</option>
+  <option value="special">Daily special (specific date)</option>
+</select>
+
+<label for="specialDate">Special date (only for daily specials)</label>
+<input id="specialDate" type="date" />
 
         <label for="dishImage">Image URL *</label>
         <input

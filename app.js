@@ -88,6 +88,22 @@ function showToast(message) {
   clearTimeout(showToast.timer); showToast.timer = setTimeout(() => t.classList.remove("show"), 3000);
 }
 function safeText(value) { return String(value ?? ""); }
+
+function todayLocalDate() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isDishVisibleToday(food) {
+  const type = food.menuType || "permanent";
+
+  return type === "permanent" ||
+    (type === "special" && food.specialDate === todayLocalDate());
+}  
+
 function isAdmin(user) {
   return !!user && !!user.email && user.emailVerified &&
     adminEmailAllowlist.map(e => e.toLowerCase()).includes(user.email.toLowerCase());
@@ -192,7 +208,8 @@ function selectRestaurant(restaurantId, scrollToMenu =true) {
   selectedRestaurantId = restaurantId;
 
   foods = allFoods.filter(
-    food => food.restaurantId === restaurantId
+    food => food.restaurantId === restaurantId &&
+            isDishVisibleToday(food)
   );
 
   // Reset search and category filters.
@@ -359,10 +376,13 @@ $("#importStarterMenu").onclick = async () => {
   }
 };
 
+// Save dishes permanently in Firebase Firestore
 $("#dishForm").addEventListener("submit", async e => {
   e.preventDefault();
+
   try {
     requireAdmin();
+
     const id = $("#dishId").value;
     const name = $("#dishName").value.trim();
     const description = $("#dishDescription").value.trim();
@@ -370,7 +390,18 @@ $("#dishForm").addEventListener("submit", async e => {
     const category = $("#dishCategory").value;
     const image = $("#dishImage").value.trim();
     const available = $("#dishAvailable").checked;
-    if (!name || !description || !Number.isFinite(price) || price <= 0 || !image) throw new Error("Fill all required fields with a valid positive price and image URL.");
+    const menuType = $("#dishType").value;
+    const specialDate = $("#specialDate").value;
+
+    if (!name || !description || !Number.isFinite(price) ||
+        price <= 0 || !image) {
+      throw new Error("Please fill all required fields correctly.");
+    }
+
+    if (menuType === "special" && !specialDate) {
+      throw new Error("Choose a date for the daily special.");
+    }
+
     const payload = {
       name,
       description,
@@ -379,42 +410,128 @@ $("#dishForm").addEventListener("submit", async e => {
       image,
       available,
       restaurantId: selectedRestaurantId,
+      menuType,
+      specialDate: menuType === "special" ? specialDate : "",
       updatedAt: serverTimestamp()
     };
-    if (id) await updateDoc(doc(db, "dishes", id), payload);
-    else await addDoc(dishesRef, { ...payload, createdAt: serverTimestamp() });
-    resetDishForm(); showToast(id ? "Dish updated." : "Dish added.");
-  } catch (error) { showToast(error.message || "Unable to save dish."); }
+
+    if (id) {
+      await updateDoc(doc(db, "dishes", id), payload);
+    } else {
+      await addDoc(dishesRef, {
+        ...payload,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    resetDishForm();
+    showToast(id ? "Dish updated successfully." : "Dish added successfully.");
+
+  } catch (error) {
+    console.error("Dish save error:", error);
+    showToast(error.message || "Unable to save dish.");
+  }
 });
+
+
+// Display only the selected restaurant's dishes in admin.
 function renderAdminList() {
   const list = $("#adminDishList");
-  if (!adminUser) { list.innerHTML = ""; return; }
-  list.innerHTML = foods.map(f => `<div class="admin-dish">
-    <img src="${safeText(f.image)}" alt="" onerror="this.style.visibility='hidden'">
-    <div><strong>${safeText(f.name)}</strong><small>${rupees(f.price)} · ${safeText(f.category)} · ${f.available ? "Available" : "Sold out"}</small></div>
-    <div class="admin-dish-actions">
-      <button class="small-button" data-edit="${f.id}">Edit</button>
-      <button class="small-button" data-toggle="${f.id}">${f.available ? "Mark sold out" : "Mark available"}</button>
-      <button class="small-button danger" data-delete="${f.id}">Delete</button>
-    </div></div>`).join("") || '<p class="tiny-note">No dishes in the database yet. Use the form above to add your first dish.</p>';
-  list.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
-    const f = foods.find(x => x.id === b.dataset.edit); if (!f) return;
-    $("#dishId").value = f.id; $("#dishName").value = f.name; $("#dishDescription").value = f.description;
-    $("#dishPrice").value = f.price; $("#dishCategory").value = f.category; $("#dishImage").value = f.image;
-    $("#dishAvailable").checked = f.available; $("#saveDishButton").textContent = "Save changes";
-    $("#cancelEdit").hidden = false; $("#dishName").focus();
+
+  if (!adminUser) {
+    list.innerHTML = "";
+    return;
+  }
+
+  const adminFoods = allFoods.filter(
+    f => f.restaurantId === selectedRestaurantId
+  );
+
+  list.innerHTML = adminFoods.map(f => `
+    <div class="admin-dish">
+      <img src="${safeText(f.image)}" alt=""
+        onerror="this.style.visibility='hidden'">
+
+      <div>
+        <strong>${safeText(f.name)}</strong>
+        <small>
+          ${rupees(f.price)} · ${safeText(f.category)}
+          · ${f.available ? "Available" : "Sold out"}
+          · ${f.menuType === "special"
+            ? "Daily special: " + safeText(f.specialDate)
+            : "Permanent"}
+        </small>
+      </div>
+
+      <div class="admin-dish-actions">
+        <button class="small-button" data-edit="${f.id}">Edit</button>
+        <button class="small-button" data-toggle="${f.id}">
+          ${f.available ? "Mark sold out" : "Mark available"}
+        </button>
+        <button class="small-button danger" data-delete="${f.id}">
+          Delete
+        </button>
+      </div>
+    </div>
+  `).join("") ||
+  '<p class="tiny-note">No dishes added for this restaurant yet.</p>';
+
+  list.querySelectorAll("[data-edit]").forEach(button => {
+    button.onclick = () => {
+      const f = allFoods.find(x => x.id === button.dataset.edit);
+      if (!f) return;
+
+      $("#dishId").value = f.id;
+      $("#dishName").value = f.name;
+      $("#dishDescription").value = f.description;
+      $("#dishPrice").value = f.price;
+      $("#dishCategory").value = f.category;
+      $("#dishImage").value = f.image;
+      $("#dishAvailable").checked = f.available;
+      $("#dishType").value = f.menuType || "permanent";
+      $("#specialDate").value = f.specialDate || "";
+
+      $("#saveDishButton").textContent = "Save changes";
+      $("#cancelEdit").hidden = false;
+      $("#dishName").focus();
+    };
   });
-  list.querySelectorAll("[data-toggle]").forEach(b => b.onclick = async () => {
-    try { requireAdmin(); const f = foods.find(x => x.id === b.dataset.toggle); if (!f) return;
-      await updateDoc(doc(db, "dishes", f.id), { available: !f.available, updatedAt: serverTimestamp() });
-      showToast("Availability updated.");
-    } catch (e) { showToast(e.message); }
+
+  list.querySelectorAll("[data-toggle]").forEach(button => {
+    button.onclick = async () => {
+      try {
+        requireAdmin();
+
+        const f = allFoods.find(x => x.id === button.dataset.toggle);
+        if (!f) return;
+
+        await updateDoc(doc(db, "dishes", f.id), {
+          available: !f.available,
+          updatedAt: serverTimestamp()
+        });
+
+        showToast("Availability updated.");
+      } catch (error) {
+        showToast(error.message);
+      }
+    };
   });
-  list.querySelectorAll("[data-delete]").forEach(b => b.onclick = async () => {
-    const f = foods.find(x => x.id === b.dataset.delete); if (!f) return;
-    if (!confirm(`Delete "${f.name}" from the menu? This cannot be undone.`)) return;
-    try { requireAdmin(); await deleteDoc(doc(db, "dishes", f.id)); showToast("Dish deleted."); }
-    catch (e) { showToast(e.message); }
+
+  list.querySelectorAll("[data-delete]").forEach(button => {
+    button.onclick = async () => {
+      const f = allFoods.find(x => x.id === button.dataset.delete);
+      if (!f) return;
+
+      if (!confirm(`Delete "${f.name}" permanently?`)) return;
+
+      try {
+        requireAdmin();
+        await deleteDoc(doc(db, "dishes", f.id));
+        showToast("Dish deleted.");
+      } catch (error) {
+        showToast(error.message);
+      }
+    };
   });
 }
 
@@ -602,15 +719,16 @@ function startMenuListener() {
         category: data.category || "Meals",
         image: data.image || "",
         available: data.available === true,
-
-        // Old dishes without restaurantId belong to Tummy-Treat.
-        restaurantId: data.restaurantId || "Tummy-Treat"
+        restaurantId: data.restaurantId || "Tummy-Treat",
+        menuType: data.menuType || "permanent",
+        specialDate: data.specialDate || ""
       };
     });
 
     // Display only the selected restaurant's menu.
     foods = allFoods.filter(
-      f => f.restaurantId === selectedRestaurantId
+      f => f.restaurantId === selectedRestaurantId &&
+           isDishVisibleToday(f)
     );
 
     renderRestaurantDashboard();
@@ -631,6 +749,172 @@ function startMenuListener() {
 renderRestaurantDashboard();
 selectRestaurant("Tummy-Treat", false);
 startMenuListener();
+
+// =======================================
+// SMARTBITE AI FOOD RECOMMENDATIONS
+// =======================================
+
+const aiMoodInput = $("#aiMoodInput");
+const aiRecommendButton = $("#aiRecommendButton");
+const aiFoodStatus = $("#aiFoodStatus");
+const aiFoodResults = $("#aiFoodResults");
+
+aiRecommendButton.addEventListener("click", getAIRecommendations);
+
+aiMoodInput.addEventListener("keydown", event => {
+  if (event.key === "Enter") {
+    getAIRecommendations();
+  }
+});
+
+async function getAIRecommendations() {
+  const mood = aiMoodInput.value.trim();
+
+  if (!mood) {
+    aiFoodStatus.textContent = "Please tell us what you are craving.";
+    return;
+  }
+
+  // Only send currently available dishes.
+  const availableMenu = allFoods
+    .filter(food => food.available && isDishVisibleToday(food))
+    .map(food => {
+      const restaurant = restaurantCatalog.find(
+        r => r.id === food.restaurantId
+      );
+
+      return {
+        id: food.id,
+        name: food.name,
+        description: food.description,
+        category: food.category,
+        price: food.price,
+        restaurant: restaurant?.name || "SmartBite Restaurant"
+      };
+    });
+
+  if (!availableMenu.length) {
+    aiFoodStatus.textContent =
+      "No available dishes found. Please check the menu.";
+    return;
+  }
+
+  aiRecommendButton.disabled = true;
+  aiRecommendButton.textContent = "Finding food...";
+  aiFoodStatus.textContent = "AI is checking your mood and our menus...";
+  aiFoodResults.innerHTML = "";
+
+  try {
+    const response = await fetch(
+      "/.netlify/functions/recommend",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          mood,
+          menu: availableMenu
+        })
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "AI recommendation failed.");
+    }
+
+    aiFoodResults.innerHTML = "";
+
+    const recommendations = result.recommendations || [];
+
+    if (!recommendations.length) {
+      aiFoodStatus.textContent =
+        "Sorry, we couldn't find a suitable dish. Try another craving.";
+      return;
+    }
+
+    aiFoodStatus.textContent =
+      result.message || "Here are your AI food recommendations:";
+
+    recommendations.forEach(item => {
+      // Match the AI result to a real, currently available Firestore dish.
+      const food = allFoods.find(
+        f => f.id === String(item.dishId) && f.available
+      );
+
+      if (!food) return;
+
+      const restaurant = restaurantCatalog.find(
+        r => r.id === food.restaurantId
+      );
+
+      const card = document.createElement("article");
+      card.className = "ai-food-card";
+
+      const img = document.createElement("img");
+      img.src = food.image || restaurant?.image || "";
+      img.alt = food.name;
+      img.loading = "lazy";
+
+      const name = document.createElement("h3");
+      name.textContent = food.name;
+
+      const restaurantName = document.createElement("p");
+      restaurantName.className = "ai-restaurant-name";
+      restaurantName.textContent =
+        restaurant?.name || "SmartBite Restaurant";
+
+      const reason = document.createElement("p");
+      reason.textContent = item.reason || "Recommended for your mood.";
+
+      const price = document.createElement("p");
+      price.textContent = rupees(food.price);
+
+      const addButton = document.createElement("button");
+      addButton.type = "button";
+      addButton.textContent = "Add to Cart";
+
+      addButton.addEventListener("click", () => {
+        // Switch to the restaurant containing this dish.
+        selectRestaurant(food.restaurantId, false);
+
+        cart[food.id] = (cart[food.id] || 0) + 1;
+
+        renderFoods();
+        renderCart();
+
+        showToast(food.name + " added to your cart.");
+      });
+
+      card.append(
+        img,
+        name,
+        restaurantName,
+        reason,
+        price,
+        addButton
+      );
+
+      aiFoodResults.appendChild(card);
+    });
+
+    if (!aiFoodResults.children.length) {
+      aiFoodStatus.textContent =
+        "Those recommendations are no longer available. Please try again.";
+    }
+
+  } catch (error) {
+    console.error("AI recommendation error:", error);
+
+    aiFoodStatus.textContent =
+      error.message || "Unable to connect to the AI assistant.";
+  } finally {
+    aiRecommendButton.disabled = false;
+    aiRecommendButton.textContent = "Find my food";
+  }
+}
 
 // Map remains independent from menu management.
 function initMap() {
