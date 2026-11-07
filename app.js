@@ -657,6 +657,34 @@ async function reverseGeocode(lat, lng) {
     destinationMarker.bindPopup(`Delivery destination<br>${readable || coords}`).openPopup();
   } catch (error) { console.warn(error); }
 }
+$("#mapSearchButton").onclick = async () => {
+  const place = $("#mapSearchInput").value.trim();
+  if (!place) return showToast("Enter a location.");
+
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(place)}`
+    );
+
+    const results = await response.json();
+
+    if (!results.length) {
+      return showToast("Location not found.");
+    }
+
+    const lat = Number(results[0].lat);
+    const lng = Number(results[0].lon);
+
+    map.setView([lat, lng], 17);
+    destinationMarker.setLatLng([lat, lng]);
+
+    await reverseGeocode(lat, lng);
+
+    showToast("Location pinned successfully.");
+  } catch (error) {
+    showToast("Unable to search location.");
+  }
+};
 $("#locateMe").onclick = () => {
   if (!navigator.geolocation) return showToast("This browser does not support location detection.");
   showToast("Requesting device location permission…");
