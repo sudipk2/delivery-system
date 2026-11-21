@@ -1,6 +1,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js";
 import {
-  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendEmailVerification
+  getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  sendPasswordResetEmail, updateProfile, signOut, onAuthStateChanged,
+  sendEmailVerification
 } from "https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js";
 import {
   getFirestore, collection, addDoc, updateDoc, deleteDoc, doc,
@@ -13,13 +15,13 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const dishesRef = collection(db, "dishes");
-
+const ordersRef = collection(db, "orders");
 
 let allFoods = [];
 let foods = [];
 let cart = {};
 
-let selectedRestaurantId = "campus-bites";
+let selectedRestaurantId = "Tummy-Treat";
 let activeCategory = "All";
 
 const restaurantCatalog = [
@@ -81,13 +83,21 @@ let unsubscribeDishes = null;
 let adminUser = null;
 const $ = (s) => document.querySelector(s);
 const rupees = (n) => "₹" + Math.round(n);
-const stages = ["Order confirmed", "Preparing your food", "Ready for pickup", "Out for delivery", "Delivered"];
 
 function showToast(message) {
   const t = $("#toast"); t.textContent = message; t.classList.add("show");
   clearTimeout(showToast.timer); showToast.timer = setTimeout(() => t.classList.remove("show"), 3000);
 }
-function safeText(value) { return String(value ?? ""); }
+
+// Escapes HTML so dish names/descriptions can never inject code.
+function safeText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function todayLocalDate() {
   const d = new Date();
@@ -102,23 +112,29 @@ function isDishVisibleToday(food) {
 
   return type === "permanent" ||
     (type === "special" && food.specialDate === todayLocalDate());
-}  
+}
 
 function isAdmin(user) {
   return !!user && !!user.email && user.emailVerified &&
     adminEmailAllowlist.map(e => e.toLowerCase()).includes(user.email.toLowerCase());
 }
+
+// =======================================
+// MENU RENDERING
+// =======================================
 function renderFoods() {
-  const queryText = $("#searchInput").value.trim().toLowerCase();
+  // Search is now global (see GLOBAL DISH SEARCH below),
+  // so the menu only filters by category.
   const list = foods.filter(f =>
-    (activeCategory === "All" || f.category === activeCategory) &&
-    (!queryText || `${f.name} ${f.description} ${f.category}`.toLowerCase().includes(queryText))
+    activeCategory === "All" || f.category === activeCategory
   );
+
   $("#menuMessage").textContent = foods.length
     ? `${foods.filter(f => f.available).length} dishes currently available · Menu updates automatically`
     : "No dishes have been added yet. Please check back soon.";
+
   $("#foodGrid").innerHTML = list.map(f => `
-    <article class="food-card">
+    <article class="food-card" id="dish-${safeText(f.id)}">
       <div class="food-image">
         <img src="${safeText(f.image)}" alt="${safeText(f.name)}" loading="lazy"
           onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=700&q=80'">
@@ -131,7 +147,7 @@ function renderFoods() {
           ${f.available ? "+ Add to cart" : "Currently unavailable"}
         </button>
       </div>
-    </article>`).join("") || '<p>No dishes match your search.</p>';
+    </article>`).join("") || '<p>No dishes in this category.</p>';
 
   document.querySelectorAll("[data-add]").forEach(btn => btn.addEventListener("click", () => {
     const id = btn.dataset.add;
@@ -145,7 +161,6 @@ function renderFoods() {
 // =======================================
 // RESTAURANT DASHBOARD
 // =======================================
-
 function renderRestaurantDashboard() {
   const grid = $("#restaurantGrid");
   if (!grid) return;
@@ -173,7 +188,7 @@ function renderRestaurantDashboard() {
 
         <button
           class="restaurant-select"
-          data-restaurant="${r.id}"
+          data-restaurant="${safeText(r.id)}"
           type="button">
           ${r.id === selectedRestaurantId
             ? "✓ Selected"
@@ -191,7 +206,7 @@ function renderRestaurantDashboard() {
 }
 
 // Select a restaurant and load only its dishes.
-function selectRestaurant(restaurantId, scrollToMenu =true) {
+function selectRestaurant(restaurantId, scrollToMenu = true) {
   const restaurant = restaurantCatalog.find(
     r => r.id === restaurantId
   );
@@ -200,6 +215,9 @@ function selectRestaurant(restaurantId, scrollToMenu =true) {
 
   // Do not mix dishes from two restaurants in one cart.
   if (selectedRestaurantId !== restaurantId) {
+    if (Object.keys(cart).length) {
+      showToast("Cart cleared: one order can contain dishes from one restaurant only.");
+    }
     cart = {};
     activeCategory = "All";
     closeCart();
@@ -237,14 +255,20 @@ function selectRestaurant(restaurantId, scrollToMenu =true) {
   renderCart();
   renderAdminList();
 
-  showToast(restaurant.name + " selected.");
+  if (scrollToMenu) {
+    $("#menuHeading").scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast(restaurant.name + " selected.");
+  }
 }
 
 // Admin can switch the restaurant being managed.
 $("#restaurantAdminSelect").addEventListener("change", event => {
-  selectRestaurant(event.target.value);
+  selectRestaurant(event.target.value, false);
 });
 
+// =======================================
+// CART
+// =======================================
 function totals() {
   const subtotal = foods.reduce(
     (sum, f) => sum + f.price * (cart[f.id] || 0), 0
@@ -260,6 +284,7 @@ function totals() {
     total: subtotal + delivery + tax
   };
 }
+
 function renderCart() {
   // Remove items that are no longer in the live menu or became unavailable.
   for (const id of Object.keys(cart)) {
@@ -271,7 +296,7 @@ function renderCart() {
   $("#cartItems").innerHTML = entries.length ? entries.map(f => `
     <div class="cart-row"><div><strong>${safeText(f.name)}</strong>
       <small>${rupees(f.price)} each · ${rupees(f.price * cart[f.id])}</small></div>
-      <div class="quantity"><button data-minus="${f.id}">−</button><strong>${cart[f.id]}</strong><button data-plus="${f.id}">+</button></div>
+      <div class="quantity"><button data-minus="${safeText(f.id)}">−</button><strong>${cart[f.id]}</strong><button data-plus="${safeText(f.id)}">+</button></div>
     </div>`).join("") : '<div class="empty-cart">Your cart is empty. Add an available dish to get started.</div>';
   document.querySelectorAll("[data-minus]").forEach(b => b.onclick = () => {
     const id = b.dataset.minus; cart[id]--; if (cart[id] <= 0) delete cart[id]; renderCart();
@@ -290,28 +315,8 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
   document.querySelectorAll(".chip").forEach(x => x.classList.remove("active"));
   b.classList.add("active"); activeCategory = b.dataset.category; renderFoods();
 }));
-$("#searchButton").onclick = renderFoods;
-$("#searchInput").addEventListener("keydown", e => { if (e.key === "Enter") renderFoods(); });
 $("#cartButton").onclick = openCart; $("#closeCart").onclick = closeCart; $("#overlay").onclick = closeCart;
 $("#showOrders").onclick = () => $("#tracking").scrollIntoView({ behavior: "smooth" });
-
-$("#checkoutButton").onclick = () => {
-  if (!Object.keys(cart).length) {
-    return showToast("Add an available dish before continuing.");
-  }
-
-  // Require login before checkout
-  if (!auth.currentUser) {
-    $("#authModal")?.classList.add("open");
-    return showToast("Please log in before placing an order.");
-  }
-
-  // Show payment choices
-  $("#checkoutTotal").textContent = rupees(totals().total);
-  closeCart();
-  $("#paymentModal")?.classList.add("is-open");
-};
-
 
 $("#changeAddress").onclick = () => { $("#addressInput").value = address; $("#addressModal").classList.add("open"); };
 $("#closeAddress").onclick = () => $("#addressModal").classList.remove("open");
@@ -322,6 +327,130 @@ $("#saveAddress").onclick = () => {
   $("#addressModal").classList.remove("open"); showToast("Delivery location updated.");
 };
 
+// =======================================
+// CUSTOMER LOGIN / REGISTER
+// =======================================
+const authModal = $("#authModal");
+let authMode = "signin";
+let pendingCheckout = false;   // reopen checkout automatically after login
+authModal.style.display = "none";
+
+function setAuthMode(mode) {
+  authMode = mode;
+  const reg = mode === "register";
+  $("#authName").hidden = !reg;
+  $("#authName").required = reg;
+  $("#authTitle").textContent = reg ? "Create your account" : "Welcome to SmartBite";
+  $("#authMessage").textContent = reg ? "Register to place orders" : "Sign in to your account";
+  $("#authSubmit").textContent = reg ? "Create account" : "Sign In";
+  $("#toggleAuth").textContent = reg ? "Already have an account? Sign in" : "Create an account";
+  $("#authPassword").autocomplete = reg ? "new-password" : "current-password";
+  $("#authError").textContent = "";
+  $("#authError").style.color = "";
+}
+
+function openAuth(mode = "signin") {
+  setAuthMode(mode);
+  authModal.classList.remove("hidden");
+  authModal.style.display = "flex";
+}
+
+function closeAuth() {
+  authModal.classList.add("hidden");
+  authModal.style.display = "none";
+}
+
+function friendlyAuthError(error) {
+  const map = {
+    "auth/invalid-credential": "Wrong email or password.",
+    "auth/invalid-email": "Enter a valid email address.",
+    "auth/email-already-in-use": "This email is already registered. Try signing in.",
+    "auth/weak-password": "Password must be at least 6 characters.",
+    "auth/too-many-requests": "Too many attempts. Please try again later.",
+    "auth/network-request-failed": "Network error. Check your connection."
+  };
+  return map[error.code] || error.message;
+}
+
+$("#closeAuth").onclick = closeAuth;
+authModal.addEventListener("click", e => { if (e.target === authModal) closeAuth(); });
+$("#toggleAuth").onclick = () => setAuthMode(authMode === "signin" ? "register" : "signin");
+
+$("#authForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const email = $("#authEmail").value.trim();
+  const password = $("#authPassword").value;
+  const name = $("#authName").value.trim();
+
+  $("#authSubmit").disabled = true;
+  $("#authError").textContent = "";
+  $("#authError").style.color = "";
+
+  try {
+    if (authMode === "register") {
+      if (!name) throw new Error("Please enter your name.");
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(cred.user, { displayName: name });
+      showToast("Account created. Welcome, " + name + "!");
+    } else {
+      await signInWithEmailAndPassword(auth, email, password);
+      showToast("Signed in.");
+    }
+
+    $("#authForm").reset();
+    closeAuth();
+
+    if (pendingCheckout) {
+      pendingCheckout = false;
+      openCheckout();
+    }
+  } catch (error) {
+    $("#authError").textContent = friendlyAuthError(error);
+  } finally {
+    $("#authSubmit").disabled = false;
+  }
+});
+
+$("#forgotPassword").onclick = async () => {
+  const email = $("#authEmail").value.trim();
+  const msg = $("#authError");
+
+  if (!email) {
+    msg.style.color = "";
+    msg.textContent = "Enter your email above first.";
+    return;
+  }
+
+  try {
+    await sendPasswordResetEmail(auth, email);
+    msg.style.color = "#176b48";
+    msg.textContent = "Password reset email sent. Check your inbox.";
+  } catch (error) {
+    msg.style.color = "";
+    msg.textContent = friendlyAuthError(error);
+  }
+};
+
+$("#loginButton").onclick = async () => {
+  if (auth.currentUser) {
+    await signOut(auth);
+    showToast("Signed out.");
+  } else {
+    openAuth("signin");
+  }
+};
+
+function updateLoginButton(user) {
+  const label = $("#loginButton span");
+  label.textContent = user ? "Logout" : "Login";
+  $("#loginButton").title = user
+    ? "Signed in as " + (user.displayName || user.email)
+    : "Login";
+}
+
+// =======================================
+// ADMIN
+// =======================================
 // Admin UI: Firebase Authentication plus email allowlist; Firestore rules enforce permissions too.
 $("#adminButton").onclick = () => { $("#adminModal").classList.add("open"); };
 $("#closeAdmin").onclick = () => $("#adminModal").classList.remove("open");
@@ -350,13 +479,41 @@ $("#adminLogin").onclick = async () => {
   } finally { $("#adminLogin").disabled = false; }
 };
 $("#adminLogout").onclick = async () => { await signOut(auth); showToast("Signed out."); };
+// Admin: send a password reset email
+$("#adminForgotPassword").onclick = async () => {
+  const email = $("#adminEmail").value.trim();
+  const msg = $("#adminResetMessage");
+  const btn = $("#adminForgotPassword");
+
+  msg.style.color = "";
+
+  if (!email) {
+    msg.textContent = "Enter your admin email above first.";
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    await sendPasswordResetEmail(auth, email);
+    msg.style.color = "#176b48";
+    msg.textContent =
+      "If this email has an account, a reset link has been sent. Check your inbox and spam folder.";
+  } catch (error) {
+    msg.textContent = friendlyAuthError(error);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
 onAuthStateChanged(auth, user => {
+  updateLoginButton(user);
   adminUser = isAdmin(user) ? user : null;
   $("#adminSignedOut").hidden = !!adminUser;
   $("#adminSignedIn").hidden = !adminUser;
   if (adminUser) $("#adminIdentity").textContent = `Signed in as ${adminUser.email}`;
   renderAdminList();
 });
+
 function requireAdmin() {
   if (!isAdmin(auth.currentUser)) throw new Error("Admin permission required. Sign in with the authorized verified admin account.");
 }
@@ -368,7 +525,7 @@ $("#cancelEdit").onclick = resetDishForm;
 $("#importStarterMenu").onclick = async () => {
   try {
     requireAdmin();
-    const confirmed = confirm("Import 16 sample dishes only if the Firestore menu is empty? These are example menu entries and prices. Review them before serving customers.");
+    const confirmed = confirm("Import the sample dishes for this restaurant (only if it has no menu yet)? These are example entries and prices. Review them before serving customers.");
     if (!confirmed) return;
     await seedMenuIfEmpty();
   } catch (error) {
@@ -433,7 +590,6 @@ $("#dishForm").addEventListener("submit", async e => {
   }
 });
 
-
 // Display only the selected restaurant's dishes in admin.
 function renderAdminList() {
   const list = $("#adminDishList");
@@ -464,11 +620,11 @@ function renderAdminList() {
       </div>
 
       <div class="admin-dish-actions">
-        <button class="small-button" data-edit="${f.id}">Edit</button>
-        <button class="small-button" data-toggle="${f.id}">
+        <button class="small-button" data-edit="${safeText(f.id)}">Edit</button>
+        <button class="small-button" data-toggle="${safeText(f.id)}">
           ${f.available ? "Mark sold out" : "Mark available"}
         </button>
-        <button class="small-button danger" data-delete="${f.id}">
+        <button class="small-button danger" data-delete="${safeText(f.id)}">
           Delete
         </button>
       </div>
@@ -535,11 +691,12 @@ function renderAdminList() {
   });
 }
 
+// =======================================
+// SAMPLE MENUS
+// =======================================
 const initialMenu = [{"name":"Rainbow Veg Bowl","category":"Healthy","price":145,"description":"Fresh vegetables, grains and a zesty dressing.","rating":"4.8","available":true,"image":"https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"},{"name":"Paneer Rice Bowl","category":"Meals","price":160,"description":"Comforting rice with spiced paneer.","rating":"4.7","available":true,"image":"https://images.unsplash.com/photo-1512058564366-18510be2db19?auto=format&fit=crop&w=700&q=80"},{"name":"Masala Dosa","category":"Meals","price":90,"description":"Crispy dosa served with chutney and sambar.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1668236543090-82eba5ee5976?auto=format&fit=crop&w=700&q=80"},{"name":"Veg Burger","category":"Snacks","price":110,"description":"Toasted bun with a crunchy vegetable patty.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1520072959219-c595dc870360?auto=format&fit=crop&w=700&q=80"},{"name":"Fruit and Yogurt Bowl","category":"Healthy","price":125,"description":"Seasonal fruit with creamy yogurt.","rating":"4.8","available":true,"image":"https://images.unsplash.com/photo-1511690743698-d9d85f2fbf38?auto=format&fit=crop&w=700&q=80"},{"name":"Paneer Wrap","category":"Snacks","price":80,"description":"Paneer and salad wrapped for an easy bite.","rating":"4.4","available":false,"image":"https://images.unsplash.com/photo-1626700051175-6818013e1d4f?auto=format&fit=crop&w=700&q=80"},{"name":"Veg Noodle Bowl","category":"Meals","price":135,"description":"Wok-tossed noodles with fresh vegetables.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1569718212165-3a8278d5f624?auto=format&fit=crop&w=700&q=80"},{"name":"Avocado Toast","category":"Healthy","price":150,"description":"Toasted bread with greens and avocado.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1525351484163-7529414344d8?auto=format&fit=crop&w=700&q=80"},{"name":"Margherita Pizza","category":"Meals","price":179,"description":"Classic cheese pizza with tomato and basil.","rating":"4.7","available":true,"image":"https://images.unsplash.com/photo-1574071318508-1cdbab80d002?auto=format&fit=crop&w=700&q=80"},{"name":"French Fries","category":"Snacks","price":79,"description":"Golden crisp fries with a light seasoning.","rating":"4.4","available":true,"image":"https://images.unsplash.com/photo-1573080496219-bb080dd4f877?auto=format&fit=crop&w=700&q=80"},{"name":"Veg Momos","category":"Snacks","price":99,"description":"Steamed vegetable dumplings with dipping sauce.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=700&q=80"},{"name":"Grilled Sandwich","category":"Snacks","price":95,"description":"Grilled sandwich with vegetables and cheese.","rating":"4.3","available":true,"image":"https://images.unsplash.com/photo-1528735602780-2552fd46c7af?auto=format&fit=crop&w=700&q=80"},{"name":"Chickpea Salad","category":"Healthy","price":119,"description":"Chickpeas, fresh vegetables and herbs.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1512621776951-a57141f2eefd?auto=format&fit=crop&w=700&q=80"},{"name":"Mango Smoothie","category":"Drinks","price":89,"description":"A chilled mango smoothie.","rating":"4.5","available":true,"image":"https://images.unsplash.com/photo-1505252585461-04db1eb84625?auto=format&fit=crop&w=700&q=80"},{"name":"Cold Coffee","category":"Drinks","price":99,"description":"Chilled coffee with milk.","rating":"4.4","available":true,"image":"https://images.unsplash.com/photo-1461023058943-07fcbe16d735?auto=format&fit=crop&w=700&q=80"},{"name":"Chocolate Brownie","category":"Snacks","price":75,"description":"Rich chocolate brownie.","rating":"4.6","available":true,"image":"https://images.unsplash.com/photo-1606313564200-e75d5e30476c?auto=format&fit=crop&w=700&q=80"}];
 
-// Different sample menus for the four additional restaurants.
-// Tummy-Treatcontinues using the existing initialMenu.
-
+// Keys MUST match the restaurant ids in restaurantCatalog exactly.
 const sampleMenus = {
   "Tummy-Treat": initialMenu,
 
@@ -597,7 +754,7 @@ const sampleMenus = {
     }
   ],
 
-  "Oasis": [
+  "oasis": [
     {
       name: "Rainbow Salad Bowl",
       description: "Fresh vegetables with a light dressing.",
@@ -652,7 +809,6 @@ const sampleMenus = {
   ]
 };
 
-
 async function seedMenuIfEmpty() {
   requireAdmin();
 
@@ -687,6 +843,8 @@ async function seedMenuIfEmpty() {
     batch.set(newRef, {
       ...item,
       restaurantId,
+      menuType: "permanent",
+      specialDate: "",
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     });
@@ -698,8 +856,6 @@ async function seedMenuIfEmpty() {
     "Sample menu imported for " + activeRestaurant().name
   );
 }
-
-
 
 function startMenuListener() {
   if (unsubscribeDishes) unsubscribeDishes();
@@ -745,15 +901,106 @@ function startMenuListener() {
   });
 }
 
-
 renderRestaurantDashboard();
 selectRestaurant("Tummy-Treat", false);
 startMenuListener();
 
 // =======================================
+// GLOBAL DISH SEARCH (searches ALL restaurants)
+// =======================================
+const searchInput = $("#searchInput");
+const searchResults = $("#searchResults");
+
+function searchAllDishes(text) {
+  const q = text.trim().toLowerCase();
+  if (!q) return [];
+
+  return allFoods
+    .filter(f => isDishVisibleToday(f) &&
+      `${f.name} ${f.description} ${f.category}`.toLowerCase().includes(q))
+    .slice(0, 12);
+}
+
+function hideSearchResults() {
+  searchResults.hidden = true;
+  searchResults.innerHTML = "";
+}
+
+function showSearchResults() {
+  const text = searchInput.value;
+  if (!text.trim()) return hideSearchResults();
+
+  const matches = searchAllDishes(text);
+  searchResults.innerHTML = "";
+  searchResults.hidden = false;
+
+  if (!matches.length) {
+    const empty = document.createElement("div");
+    empty.className = "search-empty";
+    empty.textContent = `No dish found for "${text.trim()}".`;
+    searchResults.append(empty);
+    return;
+  }
+
+  matches.forEach(food => {
+    const restaurant = restaurantCatalog.find(r => r.id === food.restaurantId);
+
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "search-item";
+
+    const img = document.createElement("img");
+    img.src = food.image;
+    img.alt = "";
+    img.loading = "lazy";
+    img.onerror = () => { img.style.visibility = "hidden"; };
+
+    const info = document.createElement("span");
+    const title = document.createElement("strong");
+    title.textContent = food.name;
+    const sub = document.createElement("small");
+    sub.textContent =
+      `${restaurant?.name || "Restaurant"} · ${rupees(food.price)}` +
+      (food.available ? "" : " · Sold out");
+    info.append(title, sub);
+
+    item.append(img, info);
+    item.addEventListener("click", () => goToDish(food));
+    searchResults.append(item);
+  });
+}
+
+// Open the dish's restaurant menu and highlight the exact dish.
+function goToDish(food) {
+  hideSearchResults();
+  selectRestaurant(food.restaurantId, false);
+  searchInput.value = "";
+
+  const card = document.getElementById("dish-" + food.id);
+  if (!card) return showToast("This dish is not on today's menu.");
+
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+  card.classList.add("highlight");
+  setTimeout(() => card.classList.remove("highlight"), 2500);
+}
+
+let searchTimer;
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(showSearchResults, 200);
+});
+searchInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") showSearchResults();
+  if (e.key === "Escape") hideSearchResults();
+});
+$("#searchButton").addEventListener("click", showSearchResults);
+document.addEventListener("click", e => {
+  if (!e.target.closest(".hero-search")) hideSearchResults();
+});
+
+// =======================================
 // SMARTBITE AI FOOD RECOMMENDATIONS
 // =======================================
-
 const aiMoodInput = $("#aiMoodInput");
 const aiRecommendButton = $("#aiRecommendButton");
 const aiFoodStatus = $("#aiFoodStatus");
@@ -916,7 +1163,9 @@ async function getAIRecommendations() {
   }
 }
 
-// Map remains independent from menu management.
+// =======================================
+// MAP (independent from menu management)
+// =======================================
 function initMap() {
   if (!window.L) { $("#map").textContent = "Map failed to load. Check your internet connection."; return; }
   const initial = [12.7449, 77.8253];
@@ -938,12 +1187,13 @@ async function reverseGeocode(lat, lng) {
     const data = await response.json(); const a = data.address || {};
     const readable = data.name || [a.road, a.suburb || a.neighbourhood, a.city || a.town || a.village, a.state].filter(Boolean).join(", ");
     if (readable) { address = readable; $("#mapAddress").textContent = readable; $("#addressLabel").textContent = readable; }
-    destinationMarker.bindPopup(`Delivery destination<br>${readable || coords}`).openPopup();
+    destinationMarker.bindPopup(`Delivery destination<br>${safeText(readable || coords)}`).openPopup();
   } catch (error) { console.warn(error); }
 }
 $("#mapSearchButton").onclick = async () => {
   const place = $("#mapSearchInput").value.trim();
   if (!place) return showToast("Enter a location.");
+  if (!map) return showToast("Map is not available.");
 
   try {
     const response = await fetch(
@@ -971,6 +1221,7 @@ $("#mapSearchButton").onclick = async () => {
 };
 $("#locateMe").onclick = () => {
   if (!navigator.geolocation) return showToast("This browser does not support location detection.");
+  if (!map) return showToast("Map is not available.");
   showToast("Requesting device location permission…");
   navigator.geolocation.getCurrentPosition(async pos => {
     const lat = pos.coords.latitude, lng = pos.coords.longitude, point = [lat, lng];
@@ -990,83 +1241,122 @@ $("#locateMe").onclick = () => {
 initMap();
 renderCart();
 
-// ===================================
-// SMARTBITE PAYMENT MODAL CONTROLS
-// ===================================
+// =======================================
+// CHECKOUT: CASH ON DELIVERY ONLY, LOGIN REQUIRED
+// =======================================
+const paymentModal = $("#paymentModal");
 
-const paymentModal = document.getElementById("paymentModal");
-const closePayment = document.getElementById("closePayment");
-const cancelPayment = document.getElementById("cancelPayment");
-const continuePayment = document.getElementById("continuePayment");
-const paymentMessage = document.getElementById("paymentMessage");
-const checkoutTotal = document.getElementById("checkoutTotal");
+function closePaymentModal() {
+  paymentModal.classList.remove("is-open");
+}
 
-function openPaymentModal(total = 0) {
-  if (!paymentModal) return;
-
-  // Require customer login before opening checkout.
-  if (!auth.currentUser) {
-    const authModal = document.getElementById("authModal");
-
-    if (authModal) {
-      authModal.classList.add("active");
-      authModal.style.display = "flex";
-    } else {
-      alert("Please log in before placing an order.");
-    }
-
-    return;
+function openCheckout() {
+  if (!Object.keys(cart).length) {
+    return showToast("Add an available dish before continuing.");
   }
 
-  checkoutTotal.textContent = new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR"
-  }).format(total);
+  closeCart();
 
+  // Login is mandatory before an order can be confirmed.
+  if (!auth.currentUser) {
+    pendingCheckout = true;
+    openAuth("signin");
+    return showToast("Please log in before placing an order.");
+  }
+
+  $("#checkoutTotal").textContent = rupees(totals().total);
+  $("#checkoutAddress").textContent = address;
+  $("#paymentMessage").textContent = "Cash on Delivery is selected.";
   paymentModal.classList.add("is-open");
 }
 
-function closePaymentModal() {
-  paymentModal?.classList.remove("is-open");
-}
-
-closePayment?.addEventListener("click", closePaymentModal);
-cancelPayment?.addEventListener("click", closePaymentModal);
-
-paymentModal?.addEventListener("click", (event) => {
-  if (event.target === paymentModal) {
-    closePaymentModal();
-  }
+$("#checkoutButton").onclick = openCheckout;
+$("#closePayment").addEventListener("click", closePaymentModal);
+$("#cancelPayment").addEventListener("click", closePaymentModal);
+paymentModal.addEventListener("click", e => {
+  if (e.target === paymentModal) closePaymentModal();
 });
 
-// Highlight the selected payment option.
-document.querySelectorAll('input[name="paymentMethod"]').forEach((radio) => {
-  radio.addEventListener("change", () => {
-    document.querySelectorAll(".payment-option").forEach((option) => {
-      option.classList.toggle(
-        "selected",
-        option.querySelector('input[name="paymentMethod"]').checked
-      );
+let placingOrder = false;
+
+$("#continuePayment").addEventListener("click", async () => {
+  if (placingOrder) return;
+
+  // Check login again, in case the user logged out meanwhile.
+  const user = auth.currentUser;
+  if (!user) {
+    closePaymentModal();
+    pendingCheckout = true;
+    openAuth("signin");
+    return showToast("Please log in before placing an order.");
+  }
+
+  if (!Object.keys(cart).length) {
+    return showToast("Your cart is empty.");
+  }
+
+  if (address === "Choose delivery location") {
+    closePaymentModal();
+    $("#tracking").scrollIntoView({ behavior: "smooth" });
+    return showToast("Choose a delivery location first.");
+  }
+
+  const phone = $("#orderPhone").value.trim();
+  if (!/^[0-9+\-\s]{8,15}$/.test(phone)) {
+    $("#paymentMessage").textContent = "Enter a valid phone number (8–15 digits).";
+    return;
+  }
+
+  placingOrder = true;
+  $("#continuePayment").disabled = true;
+  $("#paymentMessage").textContent = "Placing your order…";
+
+  try {
+    const t = totals();
+    const restaurant = activeRestaurant();
+    const items = foods.filter(f => cart[f.id]).map(f => ({
+      dishId: f.id,
+      name: f.name,
+      price: f.price,
+      quantity: cart[f.id]
+    }));
+    const pos = destinationMarker ? destinationMarker.getLatLng() : null;
+
+    const orderRef = await addDoc(ordersRef, {
+      userId: user.uid,
+      userEmail: user.email,
+      customerName: user.displayName || "",
+      phone,
+      restaurantId: restaurant.id,
+      restaurantName: restaurant.name,
+      items,
+      subtotal: t.subtotal,
+      deliveryFee: t.delivery,
+      tax: t.tax,
+      total: t.total,
+      paymentMethod: "cod",
+      paymentStatus: "pending",
+      status: "confirmed",
+      address,
+      location: pos ? { lat: pos.lat, lng: pos.lng } : null,
+      createdAt: serverTimestamp()
     });
 
-    paymentMessage.textContent =
-      radio.value === "cod"
-        ? "Cash on Delivery is selected."
-        : "Online payment requires a configured payment gateway.";
-  });
-});
+    cart = {};
+    renderCart();
+    closePaymentModal();
 
-// UI only: no order or payment is created here.
-continuePayment?.addEventListener("click", () => {
-  const selectedMethod = document.querySelector(
-    'input[name="paymentMethod"]:checked'
-  )?.value;
-
-  if (selectedMethod === "cod") {
-    paymentMessage.textContent =
-      "COD selected. Connect order submission before confirming.";
-  } else {
-    paymentMessage.textContent =
-      "Online payment is not connected yet.";
+    $("#trackStatus").textContent = "Order confirmed";
+    $("#trackMessage").textContent =
+      `Order #${orderRef.id.slice(0, 6).toUpperCase()} placed. Pay ${rupees(t.total)} in cash on delivery.`;
+    $("#tracking").scrollIntoView({ behavior: "smooth" });
+    showToast("Order placed successfully!");
+  } catch (error) {
+    console.error("Order error:", error);
+    $("#paymentMessage").textContent =
+      "Could not place the order. Please try again.";
+  } finally {
+    placingOrder = false;
+    $("#continuePayment").disabled = false;
   }
 });
