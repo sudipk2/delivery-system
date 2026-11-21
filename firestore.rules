@@ -23,12 +23,11 @@ service cloud.firestore {
         && data.available is bool;
     }
 
-    match /dishes/{dishId} {
-      // Public menu reading; all writes are restricted to the verified admin.
-      allow read: if true;
-      allow create, update: if isVerifiedAdmin() && validDish(request.resource.data);
-      allow delete: if isVerifiedAdmin();
-    }
+match /dishes/{dishId} {
+  allow read: if true;     // everyone can read the menu
+  allow create, update: if isVerifiedAdmin() && validDish(request.resource.data);
+  allow delete: if isVerifiedAdmin();
+}
 
     // Default deny for every other collection/document.
     match /{document=**} {

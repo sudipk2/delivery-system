@@ -825,7 +825,7 @@ async function seedMenuIfEmpty() {
   const alreadyHasMenu = existing.docs.some(d => {
     const data = d.data();
     const existingRestaurantId =
-      data.restaurantId || "Tummy-Treat";
+    normalizeRestaurantId(data.restaurantId);
 
     return existingRestaurantId === restaurantId;
   });
@@ -1320,6 +1320,16 @@ $("#continuePayment").addEventListener("click", async () => {
       price: f.price,
       quantity: cart[f.id]
     }));
+    // Matches ids case-insensitively and ignores stray spaces,
+// so old dishes saved as " Halli-coffee" or "Oasis" still show up.
+function normalizeRestaurantId(id) {
+  const clean = String(id || "").trim();
+  if (!clean) return "Tummy-Treat";
+  const match = restaurantCatalog.find(
+    r => r.id.toLowerCase() === clean.toLowerCase()
+  );
+  return match ? match.id : clean;
+}
     const pos = destinationMarker ? destinationMarker.getLatLng() : null;
 
     const orderRef = await addDoc(ordersRef, {
